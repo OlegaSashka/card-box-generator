@@ -136,24 +136,36 @@ function createTuckContour(xLeft, xRight, yHinge, yTuckEdge, isPointingUp, hasLo
   }
 }
 
-// Контур пылевого клапана (пыльника): скошенный или симметричный
-function createDustContour(xLeft, xRight, yBase, length, isPointingUp, style) {
+// Контур пылевого клапана (пыльника): скошенный (с зеркалированием) или симметричный
+function createDustContour(xLeft, xRight, yBase, length, isPointingUp, style, mirror = false) {
   const dir = isPointingUp ? -1 : 1;
   const w = xRight - xLeft;
 
   if (style === 'shoulder') {
-    // Асимметричный с плечиком (как на 1-й иконке)
     const inset = Math.min(5, w * 0.25);
-    return [
-      { x: xLeft, y: yBase },
-      { x: xLeft, y: yBase + dir * length },
-      { x: xRight - inset, y: yBase + dir * length },
-      { x: xRight - 1, y: yBase + dir * (length * 0.4) },
-      { x: xRight, y: yBase + dir * 1.5 },
-      { x: xRight, y: yBase }
-    ];
+    if (mirror) {
+      // Скос/плечико слева (xLeft), прямой срез справа (xRight)
+      return [
+        { x: xLeft, y: yBase },
+        { x: xLeft, y: yBase + dir * 1.5 },
+        { x: xLeft + 1, y: yBase + dir * (length * 0.4) },
+        { x: xLeft + inset, y: yBase + dir * length },
+        { x: xRight, y: yBase + dir * length },
+        { x: xRight, y: yBase }
+      ];
+    } else {
+      // Прямой срез слева (xLeft), скос/плечико справа (xRight)
+      return [
+        { x: xLeft, y: yBase },
+        { x: xLeft, y: yBase + dir * length },
+        { x: xRight - inset, y: yBase + dir * length },
+        { x: xRight - 1, y: yBase + dir * (length * 0.4) },
+        { x: xRight, y: yBase + dir * 1.5 },
+        { x: xRight, y: yBase }
+      ];
+    }
   } else {
-    // Симметричная трапеция с уступами от сгибов
+    // Симметричная трапеция
     const taper = Math.min(4.5, w * 0.22);
     return [
       { x: xLeft, y: yBase },
@@ -169,6 +181,9 @@ function createDustContour(xLeft, xRight, yBase, length, isPointingUp, style) {
 // -------------------------------------------------------------------------
 // Базовая фабрика построения разверток пачек (RTE и STE)
 // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// Базовая фабрика построения разверток пачек (RTE и STE)
+// -------------------------------------------------------------------------
 function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const { L, D, W, glue, tuck, dust } = dim;
   const hasLock = opts.locks !== 'none';
@@ -178,6 +193,7 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const cutLines = [];
   const foldLines = [];
 
+  // Горизонтальная разметка
   const x0 = 0;
   const x1 = glue;
   const x2 = x1 + L;
@@ -185,6 +201,7 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const x4 = x3 + L;
   const x5 = x4 + W;
 
+  // Вертикальная разметка
   const yTopTuck = 0;
   const yTopHinge = tuck;
   const yBodyTop = yTopHinge + W;
@@ -195,15 +212,18 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const totalWidth = x5;
   const totalHeight = yBottomTuck;
 
-  // Сгибы
+  // --- ЛИНИИ СГИБА (FOLD) ---
+  // Вертикальные сгибы между гранями
   foldLines.push({ x1: x1, y1: yBodyTop, x2: x1, y2: yBodyBottom });
   foldLines.push({ x1: x2, y1: yBodyTop, x2: x2, y2: yBodyBottom });
   foldLines.push({ x1: x3, y1: yBodyTop, x2: x3, y2: yBodyBottom });
   foldLines.push({ x1: x4, y1: yBodyTop, x2: x4, y2: yBodyBottom });
 
+  // Поперечные сгибы корпуса (верх и низ)
   foldLines.push({ x1: x1, y1: yBodyTop, x2: x5, y2: yBodyTop });
   foldLines.push({ x1: x1, y1: yBodyBottom, x2: x5, y2: yBodyBottom });
 
+  // Линии сгиба заправочных клапанов
   const lockInset = hasLock ? 1.5 : 0;
   foldLines.push({ x1: x3 + lockInset, y1: yTopHinge, x2: x4 - lockInset, y2: yTopHinge });
 
@@ -211,7 +231,8 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const bottomPanelRight = isReverse ? x2 : x4;
   foldLines.push({ x1: bottomPanelLeft + lockInset, y1: yBottomHinge, x2: bottomPanelRight - lockInset, y2: yBottomHinge });
 
-  // Клеевой клапан со скосами 45°
+  // --- ЛИНИИ РЕЗА (CUT) ---
+  // Клеевой боковой клапан
   cutLines.push([
     { x: x1, y: yBodyTop },
     { x: x0, y: yBodyTop + Math.min(glue, 8) },
@@ -219,58 +240,75 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
     { x: x1, y: yBodyBottom }
   ]);
 
-  // Верхний срез лицевой панели + опциональный вырез под палец
+  // Верхний срез лицевой панели (с плавным полукруглым вырезом или прямой)
   const thumbR = 8;
   const midX = (x1 + x2) / 2;
-  let thumbArc = null;
 
   if (hasThumbNotch) {
-    cutLines.push([{ x: x1, y: yBodyTop }, { x: midX - thumbR, y: yBodyTop }]);
-    cutLines.push([{ x: midX + thumbR, y: yBodyTop }, { x: x2, y: yBodyTop }]);
-    thumbArc = { cx: midX, cy: yBodyTop, r: thumbR };
+    const arcPoints = [];
+    const segments = 24;
+    for (let i = 0; i <= segments; i++) {
+      const angle = (Math.PI * i) / segments;
+      arcPoints.push({
+        x: midX - thumbR * Math.cos(angle),
+        y: yBodyTop + thumbR * Math.sin(angle)
+      });
+    }
+    cutLines.push([
+      { x: x1, y: yBodyTop },
+      ...arcPoints,
+      { x: x2, y: yBodyTop }
+    ]);
   } else {
     cutLines.push([{ x: x1, y: yBodyTop }, { x: x2, y: yBodyTop }]);
   }
 
-  // Верхние пылевые клапаны и крышка
-  cutLines.push(createDustContour(x2, x3, yBodyTop, dust, true, flapStyle));
+  // Верхняя часть: левый пылевой клапан (зеркальный) + крышка + правый пылевой клапан
+  cutLines.push(createDustContour(x2, x3, yBodyTop, dust, true, flapStyle, true));
   cutLines.push([
     { x: x3, y: yBodyTop },
     ...createTuckContour(x3, x4, yTopHinge, yTopTuck, true, hasLock),
     { x: x4, y: yBodyTop }
   ]);
-  cutLines.push(createDustContour(x4, x5, yBodyTop, dust, true, flapStyle));
+  cutLines.push(createDustContour(x4, x5, yBodyTop, dust, true, flapStyle, false));
+
+  // Правый срез последней панели
   cutLines.push([{ x: x5, y: yBodyTop }, { x: x5, y: yBodyBottom }]);
 
-  // Нижний контур (разница между RTE и STE)
+  // Нижняя часть: распределение крышки и пыльников в зависимости от типа (RTE или STE)
   if (isReverse) {
+    // RTE: крышка на панели 1, пыльники зеркально направлены к ней
     cutLines.push([
       { x: x1, y: yBodyBottom },
       ...createTuckContour(x1, x2, yBottomHinge, yBottomTuck, false, hasLock),
       { x: x2, y: yBodyBottom }
     ]);
-    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle));
+    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle, false));
     cutLines.push([{ x: x3, y: yBodyBottom }, { x: x4, y: yBodyBottom }]);
-    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle));
+    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle, true));
   } else {
+    // STE: крышка на панели 3, пыльники ориентированы зеркально к панели 3
     cutLines.push([{ x: x1, y: yBodyBottom }, { x: x2, y: yBodyBottom }]);
-    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle));
+    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle, true));
     cutLines.push([
       { x: x3, y: yBodyBottom },
       ...createTuckContour(x3, x4, yBottomHinge, yBottomTuck, false, hasLock),
       { x: x4, y: yBodyBottom }
     ]);
-    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle));
+    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle, false));
   }
 
+  // Область клеевого шва
   const glueArea = { x: x0, y: yBodyTop + 5, w: glue, h: D - 10 };
+
+  // Размерные стрелки
   const annotations = [
     { type: 'dim-h', text: 'W', x1: x2, x2: x3, y: yBodyTop + D * 0.4 },
     { type: 'dim-h', text: 'L', x1: x3, x2: x4, y: yBodyTop + D * 0.4 },
     { type: 'dim-v', text: 'D', y1: yBodyTop, y2: yBodyBottom, x: x2 + W * 0.75 }
   ];
 
-  return { cutLines, foldLines, glueArea, annotations, totalWidth, totalHeight, thumbArc };
+  return { cutLines, foldLines, glueArea, annotations, totalWidth, totalHeight };
 }
 
 function generateReverseTuckBox(dim, opts) {
@@ -406,11 +444,6 @@ function render() {
             fill="#fef08a" stroke="#eab308" stroke-dasharray="2,2" opacity="0.8" />
   `;
 
-  if (box.thumbArc) {
-    const arc = box.thumbArc;
-    html += `<path d="M ${arc.cx - arc.r} ${arc.cy} A ${arc.r} ${arc.r} 0 0 0 ${arc.cx + arc.r} ${arc.cy}" stroke="#dc2626" stroke-width="0.7" fill="none" />`;
-  }
-
   // Сгибы
   box.foldLines.forEach(l => {
     html += `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="#16a34a" stroke-width="0.5" stroke-dasharray="2,1.5" />`;
@@ -480,12 +513,7 @@ function exportToPDF() {
       doc.line(ox + points[i].x, oy + points[i].y, ox + points[i + 1].x, oy + points[i + 1].y);
     }
   });
-
-  if (box.thumbArc) {
-    const arc = box.thumbArc;
-    doc.circle(ox + arc.cx, oy + arc.cy, arc.r);
-  }
-
+  
   doc.save(`box-${inputs.boxType.value}-${dim.L - parseFloat(inputs.clearance.value)}x${dim.D - parseFloat(inputs.clearance.value)}x${dim.W - parseFloat(inputs.clearance.value)}.pdf`);
 }
 
