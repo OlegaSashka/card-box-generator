@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Генератор коробок для карт</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+  <header class="control-panel">
+    
+    <div class="panel-section">
+    <h3>Положение на листе</h3>
+    <div class="input-grid" style="align-items: flex-end;">
+        <label>
+        Отступ X: <span id="val-pos-x">0</span> мм
+        <input type="range" id="pos-x" min="0" max="400" value="10" step="1">
+        </label>
+        <label>
+        Отступ Y: <span id="val-pos-y">0</span> мм
+        <input type="range" id="pos-y" min="0" max="400" value="10" step="1">
+        </label>
+        <button type="button" id="btn-center" style="padding: 5px 10px; font-size: 12px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; height: 28px;">
+        По центру
+        </button>
+    </div>
+    </div>
+    <!-- Выбор типа коробки (легко расширяется) -->
+    <div class="panel-section">
+      <h3>Тип коробки</h3>
+      <select id="box-type">
+        <!-- Опции генерируются автоматически из JS-реестра -->
+      </select>
+    </div>
+
+    <!-- Добавить после блока с селектором #box-type -->
+    <div class="panel-section" id="box-options-panel">
+        <h3>Опции</h3>
+        <div class="input-grid" id="dynamic-box-options">
+            <!-- Элементы генерируются автоматически через JS -->
+        </div>
+    </div>
+
+    <!-- Размеры карт -->
+    <div class="panel-section">
+      <h3>Размеры карт (мм)</h3>
+      <div class="input-grid">
+        <label>
+          Ширина (L): <span id="val-width">63</span> мм
+          <input type="range" id="card-width" min="30" max="130" value="63" step="0.5">
+        </label>
+        <label>
+          Высота (D): <span id="val-height">88</span> мм
+          <input type="range" id="card-height" min="40" max="180" value="88" step="0.5">
+        </label>
+        <label>
+          Толщина колоды (W): <span id="val-depth">18</span> мм
+          <input type="range" id="card-depth" min="5" max="70" value="18" step="0.5">
+        </label>
+      </div>
+    </div>
+
+    <!-- Параметры листа -->
+    <div class="panel-section">
+      <h3>Печать и зазоры</h3>
+      <div class="input-grid">
+        <label>
+          Бумага:
+          <select id="paper-format">
+            <option value="a4">A4 (210 × 297 мм)</option>
+            <option value="a3">A3 (297 × 420 мм)</option>
+            <option value="letter">US Letter (216 × 279 мм)</option>
+          </select>
+        </label>
+        <label>
+          Ориентация:
+          <select id="paper-orientation">
+            <option value="landscape">Альбомная</option>
+            <option value="portrait">Книжная</option>
+          </select>
+        </label>
+        <label>
+          Запас (Clearance): <span id="val-clearance">1.2</span> мм
+          <input type="range" id="box-clearance" min="0.5" max="3" value="1.2" step="0.1">
+        </label>
+        <label>
+            Поля принтера: <span id="val-margin">5</span> мм
+            <input type="range" id="printer-margin" min="0" max="15" value="5" step="0.5">
+        </label>
+      </div>
+    </div>
+
+    <div class="panel-section actions">
+      <div id="status-badge" class="badge">Проверка...</div>
+      <button id="btn-export" class="primary-btn">Скачать PDF (1:1)</button>
+    </div>
+  </header>
+
+  <main class="preview-panel">
+    <div class="legend">
+      <span><i class="line-sample cut"></i> Линия реза</span>
+      <span><i class="line-sample fold"></i> Линия сгиба</span>
+      <span><i class="glue-sample"></i> Клеевой клапан</span>
+      <span><i class="margin-sample"></i> Печатная зона</span>
+    </div>
+    <div class="svg-container">
+      <svg id="preview-svg"></svg>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
