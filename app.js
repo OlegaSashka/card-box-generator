@@ -102,87 +102,240 @@ function getCustomOptionsValues() {
   return res;
 }
 
-// Контур заправочного клапана (с замком или плавный без замка)
-function createTuckContour(xLeft, xRight, yHinge, yTuckEdge, isPointingUp, hasLock) {
+// -------------------------------------------------------------------------
+// 1. Аккуратный пылевой клапан: скос, уступ и разгрузочный скос у петли
+// -------------------------------------------------------------------------
+function createDustContour(xLeft, xRight, yBase, length, isPointingUp, style, slopeSide = 'left') {
   const dir = isPointingUp ? -1 : 1;
   const w = xRight - xLeft;
-  const cornerR = Math.min(6.0, w * 0.15);
-
-  if (hasLock) {
-    const notchDepth = 1.8;
-    const notchHeight = 2.4;
-    return [
-      { x: xLeft, y: yHinge },
-      { x: xLeft, y: yHinge - dir * notchHeight },
-      { x: xLeft + notchDepth, y: yHinge - dir * notchHeight },
-      { x: xLeft + notchDepth, y: yHinge },
-      { x: xLeft + 0.8, y: yHinge + dir * 1.8 },
-      { x: xLeft + cornerR, y: yTuckEdge },
-      { x: xRight - cornerR, y: yTuckEdge },
-      { x: xRight - 0.8, y: yHinge + dir * 1.8 },
-      { x: xRight - notchDepth, y: yHinge },
-      { x: xRight - notchDepth, y: yHinge - dir * notchHeight },
-      { x: xRight, y: yHinge - dir * notchHeight },
-      { x: xRight, y: yHinge }
-    ];
-  } else {
-    // Без замка: гладкий скругленный клапан легкого трения
-    return [
-      { x: xLeft, y: yHinge },
-      { x: xLeft + cornerR, y: yTuckEdge },
-      { x: xRight - cornerR, y: yTuckEdge },
-      { x: xRight, y: yHinge }
-    ];
-  }
-}
-
-// Контур пылевого клапана (пыльника): скошенный (с зеркалированием) или симметричный
-function createDustContour(xLeft, xRight, yBase, length, isPointingUp, style, mirror = false) {
-  const dir = isPointingUp ? -1 : 1;
-  const w = xRight - xLeft;
+  const yTop = yBase + dir * length;
 
   if (style === 'shoulder') {
-    const inset = Math.min(5, w * 0.25);
-    if (mirror) {
-      // Скос/плечико слева (xLeft), прямой срез справа (xRight)
+    const slopeInset = Math.min(5.5, w * 0.22);
+
+    if (slopeSide === 'left') {
+      // Скос слева, справа зазор 1.2 мм и разгрузочный скос у основания (к крышке)
       return [
         { x: xLeft, y: yBase },
-        { x: xLeft, y: yBase + dir * 1.5 },
-        { x: xLeft + 1, y: yBase + dir * (length * 0.4) },
-        { x: xLeft + inset, y: yBase + dir * length },
-        { x: xRight, y: yBase + dir * length },
+        { x: xLeft + 0.8, y: yBase + dir * 1.5 },
+        { x: xLeft + slopeInset, y: yTop },
+        { x: xRight - 1.2, y: yTop },
+        { x: xRight - 1.2, y: yBase + dir * 2.5 },
         { x: xRight, y: yBase }
       ];
     } else {
-      // Прямой срез слева (xLeft), скос/плечико справа (xRight)
+      // Слева зазор 1.2 мм и разгрузочный скос у основания (к крышке), скос справа
       return [
         { x: xLeft, y: yBase },
-        { x: xLeft, y: yBase + dir * length },
-        { x: xRight - inset, y: yBase + dir * length },
-        { x: xRight - 1, y: yBase + dir * (length * 0.4) },
-        { x: xRight, y: yBase + dir * 1.5 },
+        { x: xLeft + 1.2, y: yBase + dir * 2.5 },
+        { x: xLeft + 1.2, y: yTop },
+        { x: xRight - slopeInset, y: yTop },
+        { x: xRight - 0.8, y: yBase + dir * 1.5 },
         { x: xRight, y: yBase }
       ];
     }
   } else {
     // Симметричная трапеция
-    const taper = Math.min(4.5, w * 0.22);
+    const taper = Math.min(4.5, w * 0.2);
     return [
       { x: xLeft, y: yBase },
-      { x: xLeft + 1, y: yBase + dir * 1.5 },
-      { x: xLeft + taper, y: yBase + dir * length },
-      { x: xRight - taper, y: yBase + dir * length },
-      { x: xRight - 1, y: yBase + dir * 1.5 },
+      { x: xLeft + 1.0, y: yBase + dir * 1.5 },
+      { x: xLeft + taper, y: yTop },
+      { x: xRight - taper, y: yTop },
+      { x: xRight - 1.0, y: yBase + dir * 1.5 },
       { x: xRight, y: yBase }
     ];
   }
 }
 
 // -------------------------------------------------------------------------
-// Базовая фабрика построения разверток пачек (RTE и STE)
+// 2. Крышка + заправочный язычок с замками (единый неразрывный контур)
 // -------------------------------------------------------------------------
+function addCoverWithTuckFlap(xLeft, xRight, yBody, yHinge, tuckLength, isPointingUp, hasLock, cutLines, foldLines) {
+  const dir = isPointingUp ? -1 : 1;
+  const w = xRight - xLeft;
+  const yTuckEdge = yHinge + dir * tuckLength;
+
+  if (hasLock) {
+    const lockInset = 2.5; // Отступ линии сгиба от краев
+    const slitDepth = 1.6; // Глубина просечки в сторону крышки
+    const earHeight = 2.2; // Высота замочка (ушка)
+    const earY = yHinge + dir * earHeight;
+    const cornerR = Math.min(8.0, w * 0.2, (tuckLength - earHeight) * 0.8);
+
+    // Непрерывный внешний контур: стенка крышки -> ушко -> закругление -> срез -> обратно
+    const contour = [];
+    contour.push({ x: xLeft, y: yBody });
+    contour.push({ x: xLeft, y: earY });
+
+    const arcSteps = 12;
+    for (let i = 0; i <= arcSteps; i++) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      contour.push({
+        x: (xLeft + cornerR) - cornerR * Math.cos(a),
+        y: earY + dir * (tuckLength - earHeight) * Math.sin(a)
+      });
+    }
+
+    contour.push({ x: xRight - cornerR, y: yTuckEdge });
+
+    for (let i = arcSteps; i >= 0; i--) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      contour.push({
+        x: (xRight - cornerR) + cornerR * Math.cos(a),
+        y: earY + dir * (tuckLength - earHeight) * Math.sin(a)
+      });
+    }
+
+    contour.push({ x: xRight, y: earY });
+    contour.push({ x: xRight, y: yBody });
+    cutLines.push(contour);
+
+    // Просечки под замочки у линии сгиба
+    cutLines.push([
+      { x: xLeft, y: yHinge },
+      { x: xLeft + lockInset, y: yHinge },
+      { x: xLeft + lockInset, y: yHinge - dir * slitDepth }
+    ]);
+    cutLines.push([
+      { x: xRight, y: yHinge },
+      { x: xRight - lockInset, y: yHinge },
+      { x: xRight - lockInset, y: yHinge - dir * slitDepth }
+    ]);
+
+    // Линия сгиба (между просечками)
+    foldLines.push({
+      x1: xLeft + lockInset,
+      y1: yHinge,
+      x2: xRight - lockInset,
+      y2: yHinge
+    });
+  } else {
+    // Вариант без замка
+    const cornerR = Math.min(6.0, w * 0.18, tuckLength * 0.6);
+    const contour = [];
+    contour.push({ x: xLeft, y: yBody });
+    contour.push({ x: xLeft, y: yHinge });
+
+    const arcSteps = 12;
+    for (let i = 0; i <= arcSteps; i++) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      contour.push({
+        x: (xLeft + cornerR) - cornerR * Math.cos(a),
+        y: yHinge + dir * tuckLength * Math.sin(a)
+      });
+    }
+
+    contour.push({ x: xRight - cornerR, y: yTuckEdge });
+
+    for (let i = arcSteps; i >= 0; i--) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      contour.push({
+        x: (xRight - cornerR) + cornerR * Math.cos(a),
+        y: yHinge + dir * tuckLength * Math.sin(a)
+      });
+    }
+
+    contour.push({ x: xRight, y: yHinge });
+    contour.push({ x: xRight, y: yBody });
+    cutLines.push(contour);
+
+    foldLines.push({ x1: xLeft, y1: yHinge, x2: xRight, y2: yHinge });
+  }
+}
+
 // -------------------------------------------------------------------------
-// Базовая фабрика построения разверток пачек (RTE и STE)
+// 2. Генератор замка и плавного скругления крышки (с точным сопряжением дуг)
+// -------------------------------------------------------------------------
+function addTuckFlap(xLeft, xRight, yHinge, tuckLength, isPointingUp, hasLock, cutLines, foldLines) {
+  const dir = isPointingUp ? -1 : 1;
+  const w = xRight - xLeft;
+  const yTuckEdge = yHinge + dir * tuckLength;
+
+  if (hasLock) {
+    const lockInset = 2.5; // Отступ линии сгиба от краев
+    const slitDepth = 1.6; // Глубина прорези в стенку коробки
+    const earHeight = 2.4; // Высота выступающего ушка замка
+    const cornerR = Math.min(8.0, w * 0.2, tuckLength * 0.6);
+    const radiusY = tuckLength - earHeight;
+
+    // Линия сгиба (начинается строго от прорезей)
+    foldLines.push({ x1: xLeft + lockInset, y1: yHinge, x2: xRight - lockInset, y2: yHinge });
+
+    // Внутренние прорези под ушки (засечки)
+    cutLines.push([
+      { x: xLeft, y: yHinge },
+      { x: xLeft + lockInset, y: yHinge },
+      { x: xLeft + lockInset, y: yHinge - dir * slitDepth }
+    ]);
+    cutLines.push([
+      { x: xRight, y: yHinge },
+      { x: xRight - lockInset, y: yHinge },
+      { x: xRight - lockInset, y: yHinge - dir * slitDepth }
+    ]);
+
+    // Контур заправочного язычка с плавными дугами
+    const flapContour = [];
+    flapContour.push({ x: xLeft, y: yHinge });
+    flapContour.push({ x: xLeft, y: yHinge + dir * earHeight });
+
+    // Левое сопряжение (плавный переход от вертикали в горизонталь)
+    const arcSteps = 12;
+    for (let i = 0; i <= arcSteps; i++) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      flapContour.push({
+        x: (xLeft + cornerR) - cornerR * Math.cos(a),
+        y: (yHinge + dir * earHeight) + dir * (radiusY * Math.sin(a))
+      });
+    }
+
+    // Верхняя горизонтальная грань
+    flapContour.push({ x: xRight - cornerR, y: yTuckEdge });
+
+    // Правое сопряжение
+    for (let i = arcSteps; i >= 0; i--) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      flapContour.push({
+        x: (xRight - cornerR) + cornerR * Math.cos(a),
+        y: (yHinge + dir * earHeight) + dir * (radiusY * Math.sin(a))
+      });
+    }
+
+    flapContour.push({ x: xRight, y: yHinge + dir * earHeight });
+    flapContour.push({ x: xRight, y: yHinge });
+
+    cutLines.push(flapContour);
+  } else {
+    // Вариант без замка (гладкое овальное скругление)
+    foldLines.push({ x1: xLeft, y1: yHinge, x2: xRight, y2: yHinge });
+
+    const cornerR = Math.min(6.0, w * 0.15, tuckLength * 0.5);
+    const radiusY = tuckLength;
+    const flapContour = [{ x: xLeft, y: yHinge }];
+    const arcSteps = 12;
+
+    for (let i = 0; i <= arcSteps; i++) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      flapContour.push({
+        x: (xLeft + cornerR) - cornerR * Math.cos(a),
+        y: yHinge + dir * (radiusY * Math.sin(a))
+      });
+    }
+    flapContour.push({ x: xRight - cornerR, y: yTuckEdge });
+    for (let i = arcSteps; i >= 0; i--) {
+      const a = (Math.PI / 2) * (i / arcSteps);
+      flapContour.push({
+        x: (xRight - cornerR) + cornerR * Math.cos(a),
+        y: yHinge + dir * (radiusY * Math.sin(a))
+      });
+    }
+    flapContour.push({ x: xRight, y: yHinge });
+    cutLines.push(flapContour);
+  }
+}
+
+// -------------------------------------------------------------------------
+// 3. Сборка всей развертки RTE / STE
 // -------------------------------------------------------------------------
 function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const { L, D, W, glue, tuck, dust } = dim;
@@ -193,7 +346,6 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const cutLines = [];
   const foldLines = [];
 
-  // Горизонтальная разметка
   const x0 = 0;
   const x1 = glue;
   const x2 = x1 + L;
@@ -201,7 +353,6 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const x4 = x3 + L;
   const x5 = x4 + W;
 
-  // Вертикальная разметка
   const yTopTuck = 0;
   const yTopHinge = tuck;
   const yBodyTop = yTopHinge + W;
@@ -212,26 +363,15 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
   const totalWidth = x5;
   const totalHeight = yBottomTuck;
 
-  // --- ЛИНИИ СГИБА (FOLD) ---
-  // Вертикальные сгибы между гранями
+  // Основные сгибы корпуса
   foldLines.push({ x1: x1, y1: yBodyTop, x2: x1, y2: yBodyBottom });
   foldLines.push({ x1: x2, y1: yBodyTop, x2: x2, y2: yBodyBottom });
   foldLines.push({ x1: x3, y1: yBodyTop, x2: x3, y2: yBodyBottom });
   foldLines.push({ x1: x4, y1: yBodyTop, x2: x4, y2: yBodyBottom });
 
-  // Поперечные сгибы корпуса (верх и низ)
   foldLines.push({ x1: x1, y1: yBodyTop, x2: x5, y2: yBodyTop });
   foldLines.push({ x1: x1, y1: yBodyBottom, x2: x5, y2: yBodyBottom });
 
-  // Линии сгиба заправочных клапанов
-  const lockInset = hasLock ? 1.5 : 0;
-  foldLines.push({ x1: x3 + lockInset, y1: yTopHinge, x2: x4 - lockInset, y2: yTopHinge });
-
-  const bottomPanelLeft = isReverse ? x1 : x3;
-  const bottomPanelRight = isReverse ? x2 : x4;
-  foldLines.push({ x1: bottomPanelLeft + lockInset, y1: yBottomHinge, x2: bottomPanelRight - lockInset, y2: yBottomHinge });
-
-  // --- ЛИНИИ РЕЗА (CUT) ---
   // Клеевой боковой клапан
   cutLines.push([
     { x: x1, y: yBodyTop },
@@ -240,10 +380,9 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
     { x: x1, y: yBodyBottom }
   ]);
 
-  // Верхний срез лицевой панели (с плавным полукруглым вырезом или прямой)
+  // Лицевой верхний срез (с полукруглым вырезом или прямой)
   const thumbR = 8;
   const midX = (x1 + x2) / 2;
-
   if (hasThumbNotch) {
     const arcPoints = [];
     const segments = 24;
@@ -254,54 +393,33 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
         y: yBodyTop + thumbR * Math.sin(angle)
       });
     }
-    cutLines.push([
-      { x: x1, y: yBodyTop },
-      ...arcPoints,
-      { x: x2, y: yBodyTop }
-    ]);
+    cutLines.push([{ x: x1, y: yBodyTop }, ...arcPoints, { x: x2, y: yBodyTop }]);
   } else {
     cutLines.push([{ x: x1, y: yBodyTop }, { x: x2, y: yBodyTop }]);
   }
 
-  // Верхняя часть: левый пылевой клапан (зеркальный) + крышка + правый пылевой клапан
-  cutLines.push(createDustContour(x2, x3, yBodyTop, dust, true, flapStyle, true));
-  cutLines.push([
-    { x: x3, y: yBodyTop },
-    ...createTuckContour(x3, x4, yTopHinge, yTopTuck, true, hasLock),
-    { x: x4, y: yBodyTop }
-  ]);
-  cutLines.push(createDustContour(x4, x5, yBodyTop, dust, true, flapStyle, false));
-
-  // Правый срез последней панели
+  // ВЕРХ: пыльник (L) -> крышка (Back) -> пыльник (R)
+  cutLines.push(createDustContour(x2, x3, yBodyTop, dust, true, flapStyle, 'left'));
+  addCoverWithTuckFlap(x3, x4, yBodyTop, yTopHinge, tuck, true, hasLock, cutLines, foldLines);
+  cutLines.push(createDustContour(x4, x5, yBodyTop, dust, true, flapStyle, 'right'));
   cutLines.push([{ x: x5, y: yBodyTop }, { x: x5, y: yBodyBottom }]);
 
-  // Нижняя часть: распределение крышки и пыльников в зависимости от типа (RTE или STE)
+  // НИЗ: в зависимости от RTE или STE
   if (isReverse) {
-    // RTE: крышка на панели 1, пыльники зеркально направлены к ней
-    cutLines.push([
-      { x: x1, y: yBodyBottom },
-      ...createTuckContour(x1, x2, yBottomHinge, yBottomTuck, false, hasLock),
-      { x: x2, y: yBodyBottom }
-    ]);
-    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle, false));
+    // RTE: крышка снизу на первой панели (Front)
+    addCoverWithTuckFlap(x1, x2, yBodyBottom, yBottomHinge, tuck, false, hasLock, cutLines, foldLines);
+    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle, 'right'));
     cutLines.push([{ x: x3, y: yBodyBottom }, { x: x4, y: yBodyBottom }]);
-    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle, true));
+    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle, 'left'));
   } else {
-    // STE: крышка на панели 3, пыльники ориентированы зеркально к панели 3
+    // STE: крышка снизу на третьей панели (Back)
     cutLines.push([{ x: x1, y: yBodyBottom }, { x: x2, y: yBodyBottom }]);
-    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle, true));
-    cutLines.push([
-      { x: x3, y: yBodyBottom },
-      ...createTuckContour(x3, x4, yBottomHinge, yBottomTuck, false, hasLock),
-      { x: x4, y: yBodyBottom }
-    ]);
-    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle, false));
+    cutLines.push(createDustContour(x2, x3, yBodyBottom, dust, false, flapStyle, 'left'));
+    addCoverWithTuckFlap(x3, x4, yBodyBottom, yBottomHinge, tuck, false, hasLock, cutLines, foldLines);
+    cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle, 'right'));
   }
 
-  // Область клеевого шва
   const glueArea = { x: x0, y: yBodyTop + 5, w: glue, h: D - 10 };
-
-  // Размерные стрелки
   const annotations = [
     { type: 'dim-h', text: 'W', x1: x2, x2: x3, y: yBodyTop + D * 0.4 },
     { type: 'dim-h', text: 'L', x1: x3, x2: x4, y: yBodyTop + D * 0.4 },
