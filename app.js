@@ -3,6 +3,7 @@ const STORAGE_KEY = 'card_box_settings_v1';
 function saveSettings() {
   const data = {};
   Object.keys(inputs).forEach(k => data[k] = inputs[k].value);
+  data.showDimensions = showDimensionsInput.checked;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
@@ -12,8 +13,16 @@ function loadSettings() {
   try {
     const data = JSON.parse(raw);
     Object.keys(data).forEach(k => {
-      if (inputs[k]) inputs[k].value = data[k];
+      if (inputs[k]) {
+        inputs[k].value = data[k];
+        // Синхронизируем связанное числовое поле
+        const pair = SLIDER_SYNC_PAIRS.find(p => p.range === inputs[k]);
+        if (pair) pair.num.value = data[k];
+      }
     });
+    if (data.showDimensions !== undefined) {
+      showDimensionsInput.checked = Boolean(data.showDimensions);
+    }
   } catch (e) {
     console.error("Ошибка загрузки настроек", e);
   }
@@ -419,7 +428,13 @@ function buildTuckBoxGeometry(dim, isReverse, opts = {}) {
     cutLines.push(createDustContour(x4, x5, yBodyBottom, dust, false, flapStyle, 'right'));
   }
 
-  const glueArea = { x: x0, y: yBodyTop + 5, w: glue, h: D - 10 };
+  const glueCut = Math.min(glue, 8);
+  const glueArea = { 
+    x: x0, 
+    y: yBodyTop + glueCut, 
+    w: glue, 
+    h: D - (glueCut * 2) 
+  };a = { x: x0, y: yBodyTop + 5, w: glue, h: D - 10 };
   const annotations = [
     { type: 'dim-h', text: 'W', x1: x2, x2: x3, y: yBodyTop + D * 0.4 },
     { type: 'dim-h', text: 'L', x1: x3, x2: x4, y: yBodyTop + D * 0.4 },
@@ -453,21 +468,22 @@ const inputs = {
   orientation: document.getElementById('paper-orientation')
 };
 
-const labels = {
-  width: document.getElementById('val-width'),
-  height: document.getElementById('val-height'),
-  depth: document.getElementById('val-depth'),
-  clearance: document.getElementById('val-clearance'),
-  margin: document.getElementById('val-margin'),
-  posX: document.getElementById('val-pos-x'),
-  posY: document.getElementById('val-pos-y')
-};
-
+const showDimensionsInput = document.getElementById('show-dimensions');
 const btnCenter = document.getElementById('btn-center');
-
 const badge = document.getElementById('status-badge');
 const svg = document.getElementById('preview-svg');
 const exportBtn = document.getElementById('btn-export');
+
+// Конфигурация пар: ползунок <-> числовое поле
+const SLIDER_SYNC_PAIRS = [
+  { range: inputs.posX, num: document.getElementById('num-pos-x') },
+  { range: inputs.posY, num: document.getElementById('num-pos-y') },
+  { range: inputs.width, num: document.getElementById('num-width') },
+  { range: inputs.height, num: document.getElementById('num-height') },
+  { range: inputs.depth, num: document.getElementById('num-depth') },
+  { range: inputs.clearance, num: document.getElementById('num-clearance') },
+  { range: inputs.margin, num: document.getElementById('num-margin') }
+];
 
 // Инициализация выпадающего списка доступных шаблонов
 function initTemplatesUI() {
@@ -503,13 +519,6 @@ function getPaperDimensions() {
 }
 
 function render() {
-  // Обновление подписей значений
-  labels.width.textContent = inputs.width.value;
-  labels.height.textContent = inputs.height.value;
-  labels.depth.textContent = inputs.depth.value;
-  labels.clearance.textContent = inputs.clearance.value;
-  labels.margin.textContent = inputs.margin.value; // <-- Новое
-
   // Сохраняем любое изменение
   saveSettings();
 
@@ -523,12 +532,11 @@ function render() {
   const printableW = paper.w - (margin * 2);
   const printableH = paper.h - (margin * 2);
 
-  // Динамическое обновление максимальных границ ползунков
+  // Синхронизируем динамические границы для X и Y
   inputs.posX.max = Math.round(paper.w);
   inputs.posY.max = Math.round(paper.h);
-
-  labels.posX.textContent = inputs.posX.value;
-  labels.posY.textContent = inputs.posY.value;
+  document.getElementById('num-pos-x').max = Math.round(paper.w);
+  document.getElementById('num-pos-y').max = Math.round(paper.h);
 
   const ox = parseFloat(inputs.posX.value);
   const oy = parseFloat(inputs.posY.value);
@@ -573,20 +581,22 @@ function render() {
     html += `<path d="${d}" stroke="#dc2626" stroke-width="0.7" fill="none" stroke-linejoin="round" />`;
   });
 
-  // Размерные стрелки
-  box.annotations.forEach(a => {
-    if (a.type === 'dim-h') {
-      html += `
-        <line x1="${a.x1}" y1="${a.y}" x2="${a.x2}" y2="${a.y}" stroke="#0f172a" stroke-width="0.4" />
-        <text x="${(a.x1 + a.x2) / 2}" y="${a.y - 2}" font-size="6" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#0f172a">${a.text}</text>
-      `;
-    } else if (a.type === 'dim-v') {
-      html += `
-        <line x1="${a.x}" y1="${a.y1}" x2="${a.x}" y2="${a.y2}" stroke="#0f172a" stroke-width="0.4" />
-        <text x="${a.x - 3}" y="${(a.y1 + a.y2) / 2}" font-size="7" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#0f172a">${a.text}</text>
-      `;
-    }
-  });
+  // Размерные стрелки (W, D, L) выводятся только при активном чекбоксе
+  if (showDimensionsInput.checked && box.annotations) {
+    box.annotations.forEach(a => {
+      if (a.type === 'dim-h') {
+        html += `
+          <line x1="${a.x1}" y1="${a.y}" x2="${a.x2}" y2="${a.y}" stroke="#0f172a" stroke-width="0.4" />
+          <text x="${(a.x1 + a.x2) / 2}" y="${a.y - 2}" font-size="6" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#0f172a">${a.text}</text>
+        `;
+      } else if (a.type === 'dim-v') {
+        html += `
+          <line x1="${a.x}" y1="${a.y1}" x2="${a.x}" y2="${a.y2}" stroke="#0f172a" stroke-width="0.4" />
+          <text x="${a.x - 3}" y="${(a.y1 + a.y2) / 2}" font-size="7" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#0f172a">${a.text}</text>
+        `;
+      }
+    });
+  }
 
   html += `</g>`;
   svg.innerHTML = html;
@@ -642,23 +652,48 @@ function centerBox() {
   const customOpts = getCustomOptionsValues();
   const box = template.build(dim, customOpts);
 
-  inputs.posX.value = Math.max(0, Math.round((paper.w - box.totalWidth) / 2));
-  inputs.posY.value = Math.max(0, Math.round((paper.h - box.totalHeight) / 2));
+  const cx = Math.max(0, Math.round((paper.w - box.totalWidth) / 2));
+  const cy = Math.max(0, Math.round((paper.h - box.totalHeight) / 2));
+
+  inputs.posX.value = cx;
+  inputs.posY.value = cy;
+  document.getElementById('num-pos-x').value = cx;
+  document.getElementById('num-pos-y').value = cy;
+
   render();
 }
 
-// Регистрация слушателей событий
-initTemplatesUI();
-loadSettings();
-renderCustomOptionsUI();
-Object.values(inputs).forEach(input => input.addEventListener('input', render));
-exportBtn.addEventListener('click', exportToPDF);
+// Двусторонняя привязка range <-> number
+SLIDER_SYNC_PAIRS.forEach(({ range, num }) => {
+  range.addEventListener('input', () => {
+    num.value = range.value;
+    render();
+  });
+  num.addEventListener('input', () => {
+    if (num.value !== '') {
+      range.value = num.value;
+      render();
+    }
+  });
+});
 
+inputs.boxType.addEventListener('change', () => {
+  renderCustomOptionsUI();
+  render();
+});
+inputs.paper.addEventListener('change', render);
+inputs.orientation.addEventListener('change', render);
+showDimensionsInput.addEventListener('change', render);
+exportBtn.addEventListener('click', exportToPDF);
 btnCenter.addEventListener('click', centerBox);
 
-// Если в памяти еще не было координат — отцентрируем сразу
+// Инициализация при старте
+initTemplatesUI();
+renderCustomOptionsUI();
+loadSettings();
+
 if (!localStorage.getItem(STORAGE_KEY)) {
   centerBox();
+} else {
+  render();
 }
-
-render();

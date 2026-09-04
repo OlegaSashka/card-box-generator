@@ -188,3 +188,31 @@ svg {
   height: 28px;
   font-size: 12px;
 }
+
+.slider-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.slider-field input[type="range"] {
+  margin-top: 0;
+  width: 100px;
+}
+
+.slider-field input[type="number"] {
+  width: 56px;
+  padding: 3px 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: right;
+}
+
+.unit {
+  font-size: 11px;
+  color: #64748b;
+}
